@@ -8,6 +8,9 @@ def execute_from_command_line(argv):
 
   if _arg(1) == 'shop_import_csv':
     item.import_from_csv(_arg(2),_arg(3))
+
+  elif _arg(1) == 'shop_convert_from_old':
+    item.import_from_oldDb(_arg(2),_arg(3))
   else:
     return False
   return True

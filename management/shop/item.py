@@ -3,6 +3,118 @@ import csv
 import re
 from decimal import Decimal
 from shop.models import Store, Category, Item, ItemMeta
+from home.models import Item as HomeItem
+from home.models import Store as HomeStore
+
+def import_from_oldDb(store_name, category_full_name):
+  # Warning: Assume store_name exists in HomeStore table
+  print 'input store_name: '+store_name+' cat: '+category_full_name
+
+  print 'Starting to import from Home database'
+
+  newstore = Store.objects.filter(name = store_name)
+  homestore = HomeStore.objects.filter(name = store_name)
+  if not newstore.exists():
+    print 'New store'+homestore[0].name+'created'
+    newStore = Store.objects.create(
+      name = homestore[0].name,
+      slug = (homestore[0].name.lower()).replace(" ", "_"),
+      address = homestore[0].address,
+    )
+  else:
+    newStore = newstore[0]
+
+  # Retrieve allItems:= items to be imported into new model
+  if category_full_name == '':
+    # Set flag to check category for each item when added
+    check_cat = True
+    allItems = HomeItem.objects.filter(store = homestore[0])
+  else:
+    allItems = HomeItem.objects.filter(
+      store = homestore[0],
+      category = category_full_name,
+    )
+    # Create category if needed
+    # Duplicate code: to avoid check if category exists for every item later.
+    check_cat = False
+    category = None
+    names = re.split('->', category_full_name)
+    allCategories = Category.objects.filter(store = newStore)
+    for name in names:
+      categories = allCategories.filter(name = name)
+      if category is None:
+        categories = categories.filter(parent__isnull = True)
+      else:
+        categories = categories.filter(parent = category)
+      if not categories.exists():
+        category = Category.objects.create(
+          name = name,
+          slug = name.lower().replace(" ","_"),
+          store = newStore,
+          parent = category,
+        )
+      else:
+        category = categories[0]
+
+  print 'Starting to sweep thru allItems'
+  for item in allItems:
+    if check_cat:
+      # Create category if needed
+      category = None
+      names = re.split('->', item.category)
+      allCategories = Category.objects.filter(store = newStore)
+      for name in names:
+        categories = allCategories.filter(name = name)
+        if category is None:
+          categories = categories.filter(parent__isnull = True)
+        else:
+          categories = categories.filter(parent = category)
+        if not categories.exists():
+          category = Category.objects.create(
+            name = name,
+            slug = name.lower().replace(" ","_"),
+            store = newStore,
+            parent = category,
+          )
+        else:
+          category = categories[0]
+    # Special treatment for tax_class
+    if item.tax_class == 'standard-rate':
+      new_tax_class = 0.13
+    elif item.tax_class == 'zero-rate':
+      new_tax_class = 0.0
+    else:
+      # When tax_class EMPTY, fill 0.0 for now. Further manual work needed.
+      new_tax_class = 0.0
+      print 'Item: '+item.name+' lack TAX_CLASS, fill 0.0 temporary.'
+    # Special treatment for out_of_stock
+    if item.out_of_stock == 0:
+      new_out_of_stock = False
+    elif item.out_of_stock == 1:
+      new_out_of_stock = True
+    else:
+      # When out_of_stock EMPTY, fill False.
+      new_out_of_stock = False
+      print 'Item: '+item.name+' lack OUT_OF_STOCK, fill FALSE temporary.'
+    newitem = Item.objects.create(
+      name = item.name,
+      category = category,
+      price = item.price,
+      sales_price = item.sales_price,
+      out_of_stock = new_out_of_stock,
+      sku = item.sku,
+      tax_class = new_tax_class,
+      sold_number = item.sold_number,
+    )
+    # Add metadata for Remark when needed
+    if not item.remark == '{}':
+      new_remark = item.remark
+      new_remark_title = 'remark'
+      item_meta = ItemMeta.objects.create(
+        item = newitem,
+        key = new_remark_title,
+        value = new_remark,
+      )
 
 def import_from_csv(filename, store_name):
   print 'Starting to import from CSV file %s' % filename
